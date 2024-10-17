@@ -62,7 +62,7 @@ bot.on("text", async (msg) => {
   const opts = { reply_to_message_id: message_id };
 
   if (text === "/start") {
-    replayMsg = `Welcome to XPDF Bot!\n\nKey features:\n- Compress, merge, remove pages, split and add watermark to PDF files\n- And more...`;
+    replayMsg = `Welcome to XPDF Bot!\n\nKey features:\n- Compress, merge, remove pages, split and add watermark to PDF files\n for watermark /watermark\n- And more...`;
   }
   if (text === "/merge") {
     deleteOldDataOnNewCommand(id);
@@ -181,6 +181,16 @@ bot.on("text", async (msg) => {
       keyboard: [["Cancel"]],
     };
   }
+  if (text == "/watermark") {
+    deleteOldDataOnNewCommand(id);
+    setCache(id, { action: text });
+    replayMsg = `Send me the PDF on which you want to add the watermark`;
+    opts.reply_markup = {
+      resize_keyboard: true,
+      is_persistent: true,
+      keyboard: [["Cancel"]],
+    };
+  }
   if (text === "/splitpdf") {
     deleteOldDataOnNewCommand(id);
     setCache(id, { action: text });
@@ -249,6 +259,55 @@ bot.on("document", async (msg) => {
           deletePDFs([fileObj]);
         }
         bot.sendMessage(id, text, opts);
+      } else if (action === "/watermark") {
+        const totalPages = await getTotalPages(givenName);
+        const { degrees, PDFDocument, rgb, StandardFonts } = require("pdf-lib");
+        const fs = require("fs");
+
+        // Read the existing PDF
+        const existingPdfBytes = fs.readFileSync(`./pdf/${givenName}`);
+
+        // Load the PDF using pdf-lib
+        const pdfDoc = await PDFDocument.load(existingPdfBytes);
+        const helveticaFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
+
+        // Define the watermark text (can change the text according to user...)
+        const watermarkText = "CONFIDENTIAL";
+
+        // Get the number of pages in the PDF
+        const pages = pdfDoc.getPages();
+
+        // Add watermark text to each page
+        pages.forEach((page) => {
+          const { width, height } = page.getSize();
+          page.drawText(watermarkText, {
+            x: width / 2 - 170, // Adjust position as needed
+            y: height / 2 + 150, // Adjust position as needed
+            size: 80, // Font size
+            font: helveticaFont,
+            color: rgb(1, 0, 0), // Red color (RGB)
+            opacity: 0.4, // Transparency
+            rotate: degrees(-45), // Diagonal watermark
+          });
+        });
+
+        // Serialize the PDF document to bytes
+        const pdfBytes = await pdfDoc.save();
+
+        // Save the modified PDF to a new file
+        const watermarkedPdfPath = `./pdf/watermarked_${givenName}`;
+        fs.writeFileSync(watermarkedPdfPath, pdfBytes);
+
+        // Send the watermarked PDF back to the user
+        opts.reply_markup = { remove_keyboard: true };
+        bot.sendMessage(id, "🔄 Processing your PDF with watermark...");
+        bot.sendChatAction(id, "upload_document");
+
+        setTimeout(async () => {
+          opts.caption = "Here is your watermarked PDF";
+          await bot.sendDocument(id, watermarkedPdfPath, opts);
+          fs.unlinkSync(watermarkedPdfPath); // Clean up the file
+        }, 3000);
       } else if (action === "/splitpdf") {
         const totalPages = await getTotalPages(givenName);
         if (totalPages === 1) {
@@ -323,7 +382,11 @@ bot.onText(/^[0-9]*$/, (msg, match) => {
       ranges.push([pagesNumber]);
       getUserData.ranges = ranges;
       setCache(id, getUserData);
-      const text = `New Split PDF\nStart page: *${ranges[0][0]}*\nLast  page: *${ranges[0][1]? ranges[0][1] : ranges[0][0]}*\n\nPress *Done* to split PDF ot *Cancel* to cancel action`;
+      const text = `New Split PDF\nStart page: *${
+        ranges[0][0]
+      }*\nLast  page: *${
+        ranges[0][1] ? ranges[0][1] : ranges[0][0]
+      }*\n\nPress *Done* to split PDF ot *Cancel* to cancel action`;
       bot.sendMessage(id, text, {
         reply_to_message_id: fileId,
         reply_markup: {
